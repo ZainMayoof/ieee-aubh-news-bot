@@ -56,9 +56,12 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin digest-state:digest-state 2>/dev/null || true
+
+          git remote set-url origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git fetch origin digest-state 2>/dev/null || true
+
           if git show-ref --verify --quiet refs/remotes/origin/digest-state; then
-            git worktree add --detach .digest-state digest-state
+            git worktree add --detach .digest-state refs/remotes/origin/digest-state
           else
             git init --initial-branch=digest-state .digest-state
             git -C .digest-state config user.name "github-actions[bot]"
@@ -68,11 +71,11 @@ jobs:
             git -C .digest-state add state/posted_events.json
             git -C .digest-state commit -m "Initialize published IEEE opportunity state"
             git -C .digest-state remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          fi
 
       - name: Run dry-run digest
         if: env.DRY_RUN == 'true' || env.SEND_TO_TEAMS != 'true'
         run: python main.py --dry-run --state-file .digest-state/state/posted_events.json
-          fi
 
       - name: Reserve live-send state
         if: env.DRY_RUN == 'false' && env.SEND_TO_TEAMS == 'true'
@@ -122,15 +125,8 @@ jobs:
           else
             git -C .digest-state commit -m "Finalize published IEEE opportunity IDs"
             git -C .digest-state fetch origin digest-state
-            git -C .digest-state rebase origin/digest-state
+            if git -C .digest-state show-ref --verify --quiet refs/remotes/origin/digest-state; then
+              git -C .digest-state rebase origin/digest-state
+            fi
             git -C .digest-state push origin HEAD:digest-state
-          fi
-          git -C .digest-state commit -m "Update published IEEE opportunity IDs"
-          git -C .digest-state remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" 2>/dev/null || true
-          git -C .digest-state fetch origin digest-state 2>/dev/null || true
-          if git -C .digest-state show-ref --verify --quiet refs/remotes/origin/digest-state; then
-            git -C .digest-state rebase origin/digest-state
-            git -C .digest-state push origin digest-state:digest-state
-          else
-            git -C .digest-state push origin digest-state:digest-state
           fi
