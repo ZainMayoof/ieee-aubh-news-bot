@@ -59,6 +59,10 @@ flowchart TD
     style E fill:#E8F2FF,color:#003B5C,stroke:#00629B
 ```
 
+### Screenshot of power automate flow
+
+<img width="712" height="875" alt="image" src="https://github.com/user-attachments/assets/d2b19532-9e8d-44a4-a6bc-c0ab27a37626" />
+
 ### How It Works
 
 1. **Trigger:** GitHub Actions starts the bot automatically or through a manual run.
@@ -317,6 +321,8 @@ Security recommendations:
 
 </details>
 
+
+
 ## Technology Stack
 
 | Technology | Purpose |
@@ -334,9 +340,6 @@ Security recommendations:
 
 <div align="center">
 
-**IEEE AUBH Student Branch**
-
-*Connecting students with engineering and technology opportunities.*
 
 **Developed by [Zain Mayoof](https://github.com/ZainMayoof)**
 
