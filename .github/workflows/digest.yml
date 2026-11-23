@@ -1,0 +1,96 @@
+name: IEEE AUBH Opportunities Digest
+
+on:
+  schedule:
+    - cron: "0 7 * * 0,3"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Do not post or modify persistent state"
+        required: true
+        type: boolean
+        default: true
+      send_to_teams:
+        description: "Explicitly permit a Teams POST"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ieee-aubh-digest
+  cancel-in-progress: false
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONUNBUFFERED: "1"
+      DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || inputs.dry_run }}
+      SEND_TO_TEAMS: ${{ github.event_name == 'schedule' && 'true' || inputs.send_to_teams }}
+      TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+
+    steps:
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt pytest
+
+      - name: Run tests
+        run: pytest -q
+
+      - name: Restore or initialize dedicated state branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin digest-state:digest-state 2>/dev/null || true
+          if git show-ref --verify --quiet refs/heads/digest-state; then
+            git worktree add --detach .digest-state digest-state
+          else
+            mkdir -p .digest-state
+            git -C .digest-state init
+            git -C .digest-state config user.name "github-actions[bot]"
+            git -C .digest-state config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git -C .digest-state checkout --orphan digest-state
+            mkdir -p .digest-state/state
+            cp state/posted_events.json .digest-state/state/posted_events.json
+          fi
+
+      - name: Run digest
+        run: python main.py --state-file .digest-state/state/posted_events.json ${{ env.DRY_RUN == 'false' && '--send' || '--dry-run' }}
+
+      - name: Persist state branch
+        if: env.DRY_RUN == 'false' && env.SEND_TO_TEAMS == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C .digest-state config user.name "github-actions[bot]"
+          git -C .digest-state config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C .digest-state add state/posted_events.json
+          if git -C .digest-state diff --cached --quiet; then
+            echo "No published-state changes."
+            exit 0
+          fi
+          git -C .digest-state commit -m "Update published IEEE opportunity IDs"
+          git -C .digest-state remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" 2>/dev/null || true
+          git -C .digest-state fetch origin digest-state 2>/dev/null || true
+          if git -C .digest-state show-ref --verify --quiet refs/remotes/origin/digest-state; then
+            git -C .digest-state rebase origin/digest-state
+            git -C .digest-state push origin digest-state:digest-state
+          else
+            git -C .digest-state push origin digest-state:digest-state
+          fi
