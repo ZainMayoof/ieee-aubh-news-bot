@@ -58,7 +58,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git remote set-url origin "https://github.com/$GITHUB_REPOSITORY.git"
-          git fetch origin digest-state 2>/dev/null || true
+          git fetch origin +refs/heads/digest-state:refs/remotes/origin/digest-state 2>/dev/null || true
 
           if git show-ref --verify --quiet refs/remotes/origin/digest-state; then
             git worktree add --detach .digest-state refs/remotes/origin/digest-state
@@ -71,6 +71,12 @@ jobs:
             git -C .digest-state add state/posted_events.json
             git -C .digest-state commit -m "Initialize published IEEE opportunity state"
             git -C .digest-state remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+
+            AUTH="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 | tr -d '\n')"
+            git -C .digest-state config http.https://github.com/.extraheader "AUTHORIZATION: basic $AUTH"
+            git -C .digest-state push origin HEAD:refs/heads/digest-state
+            git ls-remote --exit-code --heads origin refs/heads/digest-state >/dev/null
+            git fetch origin +refs/heads/digest-state:refs/remotes/origin/digest-state
           fi
 
       - name: Run dry-run digest
@@ -97,11 +103,15 @@ jobs:
             echo "No published-state changes."
           else
             git -C .digest-state commit -m "Reserve IEEE opportunity IDs before live send"
-            git -C .digest-state fetch origin digest-state
+            git -C .digest-state fetch origin +refs/heads/digest-state:refs/remotes/origin/digest-state
             if git -C .digest-state show-ref --verify --quiet refs/remotes/origin/digest-state; then
               git -C .digest-state rebase origin/digest-state
+            else
+              echo "Remote digest-state branch is unavailable after initialization."
+              exit 1
             fi
-            git -C .digest-state push origin HEAD:digest-state
+            git -C .digest-state push origin HEAD:refs/heads/digest-state
+            git ls-remote --exit-code --heads origin refs/heads/digest-state >/dev/null
           fi
 
       - name: Send reserved digest
@@ -124,9 +134,13 @@ jobs:
             echo "No final-state changes."
           else
             git -C .digest-state commit -m "Finalize published IEEE opportunity IDs"
-            git -C .digest-state fetch origin digest-state
+            git -C .digest-state fetch origin +refs/heads/digest-state:refs/remotes/origin/digest-state
             if git -C .digest-state show-ref --verify --quiet refs/remotes/origin/digest-state; then
               git -C .digest-state rebase origin/digest-state
+            else
+              echo "Remote digest-state branch is unavailable before final state save."
+              exit 1
             fi
-            git -C .digest-state push origin HEAD:digest-state
+            git -C .digest-state push origin HEAD:refs/heads/digest-state
+            git ls-remote --exit-code --heads origin refs/heads/digest-state >/dev/null
           fi

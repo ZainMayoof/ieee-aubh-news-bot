@@ -592,11 +592,11 @@ def main(argv=None) -> int:
         pending_ids = read_pending_ids(state_path)
         if pending_ids:
             logging.info("selected_count=0; pending reservation already exists; refusing to reserve or post duplicates")
-            return 0
+            return 1
         selected = deduplicate(opportunities, posted_ids)[:5]
         if len(selected) < 3:
             logging.info("selected_count=%d; fewer than 3 qualifying unique events, so no state was reserved", len(selected))
-            return 0
+            return 1
         selected = selected[:5]
         reserve_state(state_path, posted_ids, [event.event_id for event in selected])
         logging.info("selected_count=%d reserved_ids=%s",
