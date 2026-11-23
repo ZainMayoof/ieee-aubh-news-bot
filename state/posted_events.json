@@ -1,3 +1,10 @@
 {
-  "posted_event_ids": []
+  "posted_event_ids": [],
+  "pending_event_ids": [
+    "https://events.vtools.ieee.org/m/596273",
+    "https://events.vtools.ieee.org/m/596451",
+    "https://events.vtools.ieee.org/m/596541",
+    "https://events.vtools.ieee.org/m/596557",
+    "https://events.vtools.ieee.org/m/596774"
+  ]
 }
