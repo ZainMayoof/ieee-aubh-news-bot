@@ -6,5 +6,11 @@
     "https://events.vtools.ieee.org/m/596557",
     "https://events.vtools.ieee.org/m/596774"
   ],
-  "pending_event_ids": []
+  "pending_event_ids": [
+    "https://events.vtools.ieee.org/m/596046",
+    "https://events.vtools.ieee.org/m/596091",
+    "https://events.vtools.ieee.org/m/596235",
+    "https://events.vtools.ieee.org/m/596306",
+    "https://events.vtools.ieee.org/m/596313"
+  ]
 }
