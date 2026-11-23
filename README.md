@@ -16,7 +16,7 @@ Run these commands from the project directory:
 
 ```powershell
 py -3.12 -m venv .venv
-.\\.venv\\Scripts\\Activate.ps1
+.\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 pytest -q
@@ -43,10 +43,10 @@ Do not commit `.env` or paste the webhook URL into source, logs, screenshots, is
 1. Open **Settings > Secrets and variables > Actions**.
 2. Create Actions secret `TEAMS_WEBHOOK_URL` using the URL of the existing Workflow that posts to **IEEE Board 2026-27**.
 3. The workflow uses only `contents: write` in addition to the default read permission. The write permission is required for the dedicated `digest-state` branch.
-4. Push the repository and confirm the scheduled workflow is enabled under **Actions**.
+4. Push the repository.
 5. Use **Actions > IEEE AUBH Opportunities Digest > Run workflow**. The default dispatch values are dry-run, and the job never posts or modifies state.
 
-The workflow runs Sunday and Wednesday at `07:00 UTC`, which is `10:00 AM Asia/Bahrain` year-round (Bahrain UTC+03). GitHub scheduled runs may be delayed.
+The cron schedule is intentionally not enabled until the card payload has been verified in **IEEE Board 2026-27**. Once verified, add `cron: "0 7 * * 0,3"` back under `on:`. That runs Sunday and Wednesday at `07:00 UTC`, which is `10:00 AM Asia/Bahrain` year-round (Bahrain UTC+03). GitHub scheduled runs may be delayed.
 
 ## Persisted state and idempotency
 
