@@ -1,13 +1,13 @@
 # IEEE AUBH News Bot
 
-Python 3.12 bot that collects public official IEEE vTools opportunities, applies conservative eligibility/date filters, ranks and deduplicates them, and publishes at most one Adaptive Card containing 3-5 opportunities to the existing Microsoft Teams Workflow for **IEEE Board 2026-27**.
+Python 3.12 bot that collects public official IEEE vTools opportunities, applies conservative eligibility/date filters, ranks and deduplicates them, and publishes at most one Adaptive Card containing 1-5 opportunities to the existing Microsoft Teams Workflow for **IEEE Board 2026-27**.
 
 ## Safety defaults
 
 - `DRY_RUN=true` is the default and never posts or changes published state.
 - Sending requires both `--send` and `SEND_TO_TEAMS=true` with `DRY_RUN=false`.
 - A webhook success response updates state only after a Teams POST is considered successful.
-- If the source is unavailable, fewer than three qualifying events are found, or state cannot be safely read, the bot exits without filling or posting.
+- If the source is unavailable, no qualifying events are found, or state cannot be safely read, the bot exits without filling or posting. When 1-5 high-quality events qualify, it sends only those events.
 - This project never posts to the main **IEEE AUBH Student Branch** chat. The existing Workflow owns the destination; create no second Workflow or duplicate trigger.
 
 ## Local setup on Windows PowerShell

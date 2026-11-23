@@ -50,7 +50,7 @@ def test_card_rejects_oversized_payload(monkeypatch):
     assert payload["attachments"][0]["content"]["body"]
 
 
-def test_card_requires_three_to_five_events():
+def test_card_requires_one_to_five_events():
     event = Opportunity(
         event_id="event-1",
         title="Student Event",
@@ -62,5 +62,23 @@ def test_card_requires_three_to_five_events():
         online=False,
         student_value=True,
     )
-    with pytest.raises(RuntimeError, match="3-5"):
-        card_payload([event, event], datetime(2026, 11, 24, tzinfo=BAHRAIN))
+    with pytest.raises(RuntimeError, match="1-5"):
+        card_payload([event, event, event, event, event, event],
+                     datetime(2026, 11, 24, tzinfo=BAHRAIN))
+
+
+def test_card_accepts_two_events():
+    event = Opportunity(
+        event_id="event-1",
+        title="Student Workshop",
+        url="https://events.ieee.org/test",
+        start=datetime(2026, 12, 1, tzinfo=BAHRAIN),
+        end=None,
+        category="Workshop",
+        summary="An official technical workshop for university students.",
+        online=True,
+        student_value=True,
+    )
+    payload = card_payload([event, event], datetime(2026, 11, 24, tzinfo=BAHRAIN))
+    assert len(payload["attachments"]) == 1
+    assert len(payload["attachments"][0]["content"]["body"]) >= 4

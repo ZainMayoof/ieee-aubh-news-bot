@@ -4,7 +4,10 @@ from zoneinfo import ZoneInfo
 import feedparser
 
 from main import (
+    classify,
     extract_event_dates,
+    extract_title_date_conflict,
+    extract_verified_deadline,
     is_online,
     normalize_opportunities,
     rejection_reason,
@@ -111,3 +114,54 @@ def test_published_timestamp_is_never_used_as_event_date():
         NOW,
     )
     assert start is None
+
+
+def test_roboracer_prize_ceremony_rejected():
+    assert rejection_reason(
+        "RoboRacer Hackathon Prize Ceremony",
+        "A Korea prize-giving ceremony for selected RoboRacer hackathon winners.",
+    ) == "sports_or_ceremony"
+
+
+def test_ai_power_electronics_seminar_not_scholarship():
+    assert classify("AI in Power Electronics Seminar") == "Webinar"
+
+
+def test_webinar_already_hosted_rejected():
+    assert rejection_reason(
+        "IEEE AI Webinar",
+        "The webinar has already been hosted. A recorded session is available.",
+    ) == "already_hosted"
+
+
+def test_ping_pong_tournament_rejected():
+    assert rejection_reason(
+        "Lebanese University Ping Pong Tournament",
+        "A social table tennis tournament open only to campus participants.",
+    ) in ("sports_or_ceremony", "other_institution")
+
+
+def test_ai_workshop_title_structured_date_conflict_rejected():
+    item = entry(
+        "AI Workshop - December 12, 2026",
+        "The IEEE AI workshop is scheduled for students.",
+    )
+    item["myieee_rss_aggregator_eventdate"] = "Sat, 19 Dec 2026 10:00:00 +0100"
+    assert extract_title_date_conflict(
+        item,
+        "AI Workshop - December 12, 2026 The IEEE AI workshop is scheduled for students.",
+    ) is True
+
+
+def test_passed_registration_deadline_rejected():
+    item = entry(
+        "Student AI Workshop",
+        "Registration deadline: 20 November 2026.",
+        guid="deadline-passed",
+    )
+    item["myieee_rss_aggregator_eventdate"] = "Fri, 11 Dec 2026 10:00:00 +0100"
+    assert rejection_reason(
+        item["title"],
+        item["description"],
+        NOW,
+    ) == "deadline_passed"
