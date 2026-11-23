@@ -13,6 +13,9 @@ on:
         required: true
         type: boolean
         default: false
+        
+  schedule:
+    - cron: "0 7 * * 0,3"
 
 permissions:
   contents: write
@@ -27,8 +30,8 @@ jobs:
     timeout-minutes: 15
     env:
       PYTHONUNBUFFERED: "1"
-      DRY_RUN: ${{ inputs.dry_run }}
-      SEND_TO_TEAMS: ${{ inputs.send_to_teams }}
+      DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || inputs.dry_run }}
+      SEND_TO_TEAMS: ${{ github.event_name == 'schedule' && 'true' || inputs.send_to_teams }}
       TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
       GITHUB_TOKEN: ${{ github.token }}
 
