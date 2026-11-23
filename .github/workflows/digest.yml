@@ -27,9 +27,10 @@ jobs:
     timeout-minutes: 15
     env:
       PYTHONUNBUFFERED: "1"
-      DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || inputs.dry_run }}
-      SEND_TO_TEAMS: ${{ github.event_name == 'schedule' && 'true' || inputs.send_to_teams }}
+      DRY_RUN: ${{ inputs.dry_run }}
+      SEND_TO_TEAMS: ${{ inputs.send_to_teams }}
       TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+      GITHUB_TOKEN: ${{ github.token }}
 
     steps:
       - name: Checkout main branch
@@ -56,32 +57,73 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin digest-state:digest-state 2>/dev/null || true
-          if git show-ref --verify --quiet refs/heads/digest-state; then
+          if git show-ref --verify --quiet refs/remotes/origin/digest-state; then
             git worktree add --detach .digest-state digest-state
           else
-            mkdir -p .digest-state
-            git -C .digest-state init
+            git init --initial-branch=digest-state .digest-state
             git -C .digest-state config user.name "github-actions[bot]"
             git -C .digest-state config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git -C .digest-state checkout --orphan digest-state
             mkdir -p .digest-state/state
             cp state/posted_events.json .digest-state/state/posted_events.json
+            git -C .digest-state add state/posted_events.json
+            git -C .digest-state commit -m "Initialize published IEEE opportunity state"
+            git -C .digest-state remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+
+      - name: Run dry-run digest
+        if: env.DRY_RUN == 'true' || env.SEND_TO_TEAMS != 'true'
+        run: python main.py --dry-run --state-file .digest-state/state/posted_events.json
           fi
 
-      - name: Run digest
-        run: python main.py --state-file .digest-state/state/posted_events.json ${{ env.DRY_RUN == 'false' && '--send' || '--dry-run' }}
+      - name: Reserve live-send state
+        if: env.DRY_RUN == 'false' && env.SEND_TO_TEAMS == 'true'
+        run: python main.py --reserve-state --state-file .digest-state/state/posted_events.json
 
-      - name: Persist state branch
+      - name: Persist reserved state
         if: env.DRY_RUN == 'false' && env.SEND_TO_TEAMS == 'true'
         shell: bash
         run: |
           set -euo pipefail
           git -C .digest-state config user.name "github-actions[bot]"
           git -C .digest-state config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C .digest-state remote remove origin 2>/dev/null || true
+          git -C .digest-state remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          AUTH="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 | tr -d '\n')"
+          git -C .digest-state config http.https://github.com/.extraheader "AUTHORIZATION: basic $AUTH"
           git -C .digest-state add state/posted_events.json
           if git -C .digest-state diff --cached --quiet; then
             echo "No published-state changes."
-            exit 0
+          else
+            git -C .digest-state commit -m "Reserve IEEE opportunity IDs before live send"
+            git -C .digest-state fetch origin digest-state
+            if git -C .digest-state show-ref --verify --quiet refs/remotes/origin/digest-state; then
+              git -C .digest-state rebase origin/digest-state
+            fi
+            git -C .digest-state push origin HEAD:digest-state
+          fi
+
+      - name: Send reserved digest
+        if: env.DRY_RUN == 'false' && env.SEND_TO_TEAMS == 'true'
+        run: python main.py --send --resume-reservation --state-file .digest-state/state/posted_events.json
+
+      - name: Persist final published state
+        if: env.DRY_RUN == 'false' && env.SEND_TO_TEAMS == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C .digest-state config user.name "github-actions[bot]"
+          git -C .digest-state config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C .digest-state remote remove origin 2>/dev/null || true
+          git -C .digest-state remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          AUTH="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 | tr -d '\n')"
+          git -C .digest-state config http.https://github.com/.extraheader "AUTHORIZATION: basic $AUTH"
+          git -C .digest-state add state/posted_events.json
+          if git -C .digest-state diff --cached --quiet; then
+            echo "No final-state changes."
+          else
+            git -C .digest-state commit -m "Finalize published IEEE opportunity IDs"
+            git -C .digest-state fetch origin digest-state
+            git -C .digest-state rebase origin/digest-state
+            git -C .digest-state push origin HEAD:digest-state
           fi
           git -C .digest-state commit -m "Update published IEEE opportunity IDs"
           git -C .digest-state remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" 2>/dev/null || true

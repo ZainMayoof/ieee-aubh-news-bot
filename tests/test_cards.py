@@ -2,6 +2,8 @@ import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+import pytest
+
 from main import Opportunity, card_payload
 
 
@@ -22,7 +24,7 @@ def test_card_payload_shape_and_url():
         student_value=True,
         score=55,
     )
-    payload = card_payload([event], datetime(2026, 11, 24, 10, 0, tzinfo=BAHRAIN))
+    payload = card_payload([event, event, event], datetime(2026, 11, 24, 10, 0, tzinfo=BAHRAIN))
     assert payload["type"] == "message"
     attachment = payload["attachments"][0]
     assert attachment["contentType"] == "application/vnd.microsoft.card.adaptive"
@@ -46,3 +48,19 @@ def test_card_rejects_oversized_payload(monkeypatch):
     )
     payload = card_payload([event] * 5, datetime(2026, 11, 24, tzinfo=BAHRAIN))
     assert payload["attachments"][0]["content"]["body"]
+
+
+def test_card_requires_three_to_five_events():
+    event = Opportunity(
+        event_id="event-1",
+        title="Student Event",
+        url="https://events.ieee.org/test",
+        start=datetime(2026, 12, 1, tzinfo=BAHRAIN),
+        end=None,
+        category="Workshop",
+        summary="An official technical workshop for university students.",
+        online=False,
+        student_value=True,
+    )
+    with pytest.raises(RuntimeError, match="3-5"):
+        card_payload([event, event], datetime(2026, 11, 24, tzinfo=BAHRAIN))

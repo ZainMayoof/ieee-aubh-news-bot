@@ -4,8 +4,7 @@ import json
 import logging
 import os
 import re
-import sys
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Optional
@@ -27,7 +26,7 @@ RSS_URL = (
 )
 BAHRAIN = ZoneInfo("Asia/Bahrain")
 UTC = timezone.utc
-STATE_TEMPLATE = {"posted_event_ids": []}
+STATE_TEMPLATE = {"posted_event_ids": [], "pending_event_ids": []}
 
 REJECT_RULES = (
     ("cancelled", re.compile(r"\b(cancell(?:ed|ation)|canceled)\b", re.I)),
@@ -181,39 +180,57 @@ def parse_datetime(value) -> Optional[datetime]:
 
 
 def extract_event_dates(entry, text: str, now: datetime) -> tuple[Optional[datetime], Optional[datetime]]:
-    values = {}
-    for key in (
-        "start", "start_time", "startdate", "start_date", "dtstart",
-        "event_start", "begin", "date", "published",
-    ):
-        if entry.get(key):
-            values[key] = entry.get(key)
-
-    for key in ("start", "start_time", "startdate", "start_date", "dtstart", "event_start", "begin"):
-        parsed = parse_datetime(values.get(key))
+    structured_start_keys = (
+        "myieee_rss_aggregator_eventdate",
+        "ev_start",
+        "event_start",
+        "start",
+        "start_time",
+        "startdate",
+        "start_date",
+        "dtstart",
+        "begin",
+    )
+    for key in structured_start_keys:
+        value = entry.get(key)
+        if not value:
+            continue
+        parsed = parse_datetime(value)
         if parsed:
-            end = parse_datetime(
-                next((entry.get(k) for k in ("end", "end_time", "enddate", "end_date", "dtend",
-                                             "event_end", "finish") if entry.get(k)), None)
-            )
+            end = None
+            for end_key in ("ev_end", "event_end", "end", "end_time", "enddate",
+                            "end_date", "dtend", "finish"):
+                if entry.get(end_key):
+                    end = parse_datetime(entry.get(end_key))
+                    if end:
+                        break
             return parsed, end
 
-    date_patterns = (
-        r"\b(?:January|February|March|April|May|June|July|August|September|October|November|December)"
-        r"\s+\d{1,2}(?:,\s*\d{4})?(?:\s+\d{1,2}:\d{2}\s*(?:AM|PM)?)?\b",
-        r"\b(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),?\s+"
-        r"(?:January|February|March|April|May|June|July|August|September|October|November|December)"
-        r"\s+\d{1,2}(?:,\s*\d{4})?\b",
-        r"\b\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:?\d{2})?)?\b",
+    month_date_pattern = (
+        r"\b(?:January|February|March|April|May|June|July|August|September|October|"
+        r"November|December)\s+\d{1,2},?\s+(?:19|20)\d{2}"
     )
+    iso_date_pattern = r"\b(?:19|20)\d{2}-\d{2}-\d{2}(?:[T ][0-9]{2}:[0-9]{2}(?::[0-9]{2})?(?:Z|[+-][0-9]{2}:?[0-9]{2})?)?\b"
+    label_pattern = re.compile(
+        r"(?im)(?:^|[.!;\n])[^.!;\n]*(?:event date|event begins|event start|session date|"
+        r"starts? on|scheduled for|date and time|live date)[^.!;\n]*",
+    )
+
     candidates = []
-    for pattern in date_patterns:
-        candidates.extend(re.findall(pattern, text, re.I))
+    for segment in label_pattern.findall(text):
+        lowered = segment.lower()
+        if any(marker in lowered for marker in (
+            "published", "registration deadline", "application deadline",
+            "submission deadline", "deadline", "registration closes", "apply by",
+        )):
+            continue
+        candidates.extend(re.findall(month_date_pattern, segment, re.I))
+        candidates.extend(re.findall(iso_date_pattern, segment, re.I))
+
     for candidate in candidates:
         parsed = parse_datetime(candidate)
         if parsed and parsed.astimezone(UTC) >= now.astimezone(UTC) - __import__("datetime").timedelta(days=1):
-            if parsed.year >= now.year - 1:
-                return parsed, None
+            return parsed, None
     return None, None
 
 
@@ -224,9 +241,15 @@ def classify(text: str) -> str:
     return "Other"
 
 
-def is_online(text: str) -> bool:
+def is_online(entry, text: str) -> bool:
+    virtual = str(entry.get("virtual", "")).strip().lower()
+    if virtual in ("true", "yes", "1"):
+        return True
     return bool(re.search(
-        r"\b(online|virtual|webinar|web conference|remote|globally?|worldwide|open internationally)\b",
+        r"\b(online event|virtual event|virtual (?:workshop|webinar|conference|meeting)|"
+        r"online (?:competition|hackathon|challenge|workshop|webinar|conference)|"
+        r"join (?:the )?(?:event )?online|participate (?:from )?(?:anywhere|remotely|online)|"
+        r"livestream(?:ed)? (?:online|at)|broadcast (?:live )?online)\b",
         text, re.I,
     ))
 
@@ -243,9 +266,26 @@ def rejection_reason(title: str, description: str) -> Optional[str]:
     lowered = text.lower()
     if "expired" in lowered or "registration closed" in lowered:
         return "expired_or_closed"
+    if re.search(r"\b(?:not|only not)\s+(?:open|available)\s+to\s+(?:students|undergraduates|graduates)\b", text, re.I):
+        return "restricted_eligibility"
+    if re.search(r"\b(?:faculty|employees?|staff)\s+only\b", text, re.I):
+        return "restricted_eligibility"
     for reason, pattern in REJECT_RULES:
         if pattern.search(text):
             return reason
+    restricted_eligibility = re.compile(
+        r"\b(?:only|restricted)\s+(?:open\s+)?(?:to|for)\s+"
+        r"(?:[a-z][a-z0-9 .&'-]{2,60}\s+)?"
+        r"(?:students?|members?|employees?|faculty|staff|undergraduates?|graduates?)\b",
+        re.I,
+    )
+    specific_institution = re.compile(
+        r"\b(?:only|restricted)\s+(?:to|for)\s+[A-Z][A-Za-z0-9 .&'-]{2,50}"
+        r"\s+(?:students?|university|college)\b",
+        re.I,
+    )
+    if restricted_eligibility.search(text) or specific_institution.search(text):
+        return "other_institution"
     social = re.compile(
         r"\b(social (?:gathering|event)|coffee (?:chat|break)|dinner|lunch|"
         r"networking mixer|birthday|celebration)\b",
@@ -281,7 +321,9 @@ def rank_score(category: str, online: bool, student_value: bool, start: datetime
 
 def stable_id(entry) -> tuple[Optional[str], Optional[str]]:
     guid = entry.get("guid") or entry.get("id")
-    url = validate_url(entry.get("link") or entry.get("links", [{}])[0].get("href", ""))
+    links = entry.get("links") or []
+    link_href = links[0].get("href", "") if links else ""
+    url = validate_url(entry.get("link") or link_href)
     if guid:
         return str(guid).strip(), url
     if url:
@@ -329,7 +371,7 @@ def normalize_opportunities(entries: Iterable, now: datetime) -> tuple[list[Oppo
             else:
                 rejected["not_relevant"] = rejected.get("not_relevant", 0) + 1
                 continue
-        online = is_online(text)
+        online = is_online(entry, text)
         student_value = is_student_value(text)
         opportunity = Opportunity(
             event_id=event_id,
@@ -374,23 +416,60 @@ def read_state(path: Path) -> set[str]:
         raise RuntimeError(f"Cannot read safe published-state file {path}: {exc}") from exc
 
 
-def write_state(path: Path, posted_ids: set[str], newly_published: Iterable[str]) -> None:
+def read_pending_ids(path: Path) -> set[str]:
+    if not path.exists():
+        return set()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        pending = data.get("pending_event_ids", []) if isinstance(data, dict) else []
+        if not isinstance(pending, list):
+            raise ValueError("state pending_event_ids must be a list")
+        return {str(value) for value in pending}
+    except (json.JSONDecodeError, OSError, ValueError) as exc:
+        raise RuntimeError(f"Cannot read safe published-state file {path}: {exc}") from exc
+
+
+def write_state(path: Path, posted_ids: set[str], newly_published: Iterable[str],
+                pending_ids: Optional[Iterable[str]] = None) -> None:
     ids = set(posted_ids)
     ids.update(str(value) for value in newly_published)
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {"posted_event_ids": sorted(ids)}
-    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    pending = set(pending_ids or [])
+    payload = {
+        "posted_event_ids": sorted(ids),
+        "pending_event_ids": sorted(pending),
+    }
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(path)
+
+
+def reserve_state(path: Path, posted_ids: set[str], pending_ids: Iterable[str]) -> None:
+    write_state(path, posted_ids, [], pending_ids)
+
+
+def finalize_state(path: Path, posted_ids: set[str], published_ids: Iterable[str],
+                   pending_ids: Iterable[str]) -> None:
+    write_state(path, posted_ids, published_ids, [])
 
 
 def format_bahrain(dt: datetime) -> str:
     return dt.astimezone(BAHRAIN).strftime("%d %b %Y, %I:%M %p") + " (+03)"
 
 
+def sanitize_card_text(value: str) -> str:
+    value = clean_html(value)
+    value = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", value)
+    return value.strip()
+
+
 def card_payload(events: list[Opportunity], now: datetime) -> dict:
+    if not 3 <= len(events) <= 5:
+        raise RuntimeError("Adaptive Card requires 3-5 events")
     body = [
         {
             "type": "TextBlock",
-            "text": "IEEE AUBH | Student Opportunities",
+            "text": sanitize_card_text("IEEE AUBH | Student Opportunities"),
             "weight": "Bolder",
             "size": "Large",
             "wrap": True,
@@ -405,23 +484,26 @@ def card_payload(events: list[Opportunity], now: datetime) -> dict:
         },
     ]
     for event in events:
+        url = validate_url(event.url)
+        if not url:
+            raise RuntimeError("Adaptive Card contains an invalid event URL")
         body.append({"type": "ColumnSet", "spacing": "Medium", "columns": [
             {"type": "Column", "width": "stretch", "items": [
-                {"type": "TextBlock", "text": event.category,
+                {"type": "TextBlock", "text": sanitize_card_text(event.category),
                  "weight": "Bolder", "size": "Small", "color": "Accent", "wrap": True},
-                {"type": "TextBlock", "text": event.title,
+                {"type": "TextBlock", "text": sanitize_card_text(event.title),
                  "weight": "Bolder", "size": "Medium", "wrap": True},
                 {"type": "TextBlock",
                  "text": f"Verified date: {format_bahrain(event.start)}",
                  "wrap": True, "spacing": "Small"},
-                {"type": "TextBlock", "text": event.summary,
+                {"type": "TextBlock", "text": sanitize_card_text(event.summary),
                  "wrap": True, "spacing": "Small"},
                 {"type": "TextBlock",
-                 "text": "Open / global: confirmed" if event.online else "Accessibility: not confirmed",
+                 "text": "Online/virtual: explicitly confirmed" if event.online else "Accessibility: not verified",
                  "isSubtle": True, "wrap": True, "spacing": "Small"},
                 {"type": "ActionSet", "actions": [{
                     "type": "Action.OpenUrl", "title": "View official opportunity",
-                    "url": event.url,
+                    "url": url,
                 }]},
             ]}
         ]})
@@ -436,7 +518,7 @@ def card_payload(events: list[Opportunity], now: datetime) -> dict:
         "contentUrl": None,
         "content": card,
     }]}
-    if sys.getsizeof(json.dumps(payload)) >= 256 * 1024:
+    if len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) >= 256 * 1024:
         raise RuntimeError("Adaptive Card payload exceeds 256 KB")
     return payload
 
@@ -469,6 +551,10 @@ def parse_args(argv=None):
     parser.add_argument("--dry-run", action="store_true", help="Never post or update state")
     parser.add_argument("--send", action="store_true", help="Attempt sending; environment guard is still required")
     parser.add_argument("--state-file", default="state/posted_events.json")
+    parser.add_argument("--reserve-state", action="store_true",
+                        help="Reserve selected event IDs for a later live send")
+    parser.add_argument("--resume-reservation", action="store_true",
+                        help="Send only the IDs reserved in the state file")
     return parser.parse_args(argv)
 
 
@@ -501,7 +587,32 @@ def main(argv=None) -> int:
     except RuntimeError as exc:
         logging.error("%s", exc)
         return 1
-    selected = deduplicate(opportunities, posted_ids)[:5]
+
+    if args.reserve_state:
+        pending_ids = read_pending_ids(state_path)
+        if pending_ids:
+            logging.info("selected_count=0; pending reservation already exists; refusing to reserve or post duplicates")
+            return 0
+        selected = deduplicate(opportunities, posted_ids)[:5]
+        if len(selected) < 3:
+            logging.info("selected_count=%d; fewer than 3 qualifying unique events, so no state was reserved", len(selected))
+            return 0
+        selected = selected[:5]
+        reserve_state(state_path, posted_ids, [event.event_id for event in selected])
+        logging.info("selected_count=%d reserved_ids=%s",
+                     len(selected), ",".join(event.event_id for event in selected))
+        return 0
+
+    pending_ids = read_pending_ids(state_path)
+    if args.resume_reservation:
+        if not pending_ids:
+            logging.info("selected_count=0; no durable reservation exists")
+            return 0
+        selected = [event for event in deduplicate(opportunities, posted_ids)
+                    if event.event_id in pending_ids][:5]
+    else:
+        selected = deduplicate(opportunities, posted_ids | pending_ids)[:5]
+
     if len(selected) < 3:
         logging.info("selected_count=%d; fewer than 3 qualifying unique events, so nothing was posted", len(selected))
         return 0
@@ -523,7 +634,7 @@ def main(argv=None) -> int:
     webhook = os.getenv("TEAMS_WEBHOOK_URL", "")
     payload = card_payload(selected, now)
     if post_card(webhook, payload):
-        write_state(state_path, posted_ids, published_ids)
+        write_state(state_path, posted_ids, published_ids, [])
         logging.info("Teams webhook POST returned success; state update written")
         return 0
     logging.error("Teams POST did not succeed; persistent state was not changed")

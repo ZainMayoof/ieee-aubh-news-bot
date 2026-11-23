@@ -54,7 +54,10 @@ The bot uses `state/posted_events.json` for state in the repository. GitHub Acti
 
 - A remote `digest-state` branch is fetched and checked out into `.digest-state` as a detached worktree.
 - The script reads and writes `.digest-state/state/posted_events.json`; the main branch is never switched or overwritten.
-- After a successful send, the workflow commits only the state file and rebases/pushes to `digest-state`.
+- - Before any live POST, the workflow reserves selected IDs on `digest-state` and pushes that reservation.
+- After a successful send, the workflow commits/pushes posted IDs and clears the reservation.
+- If a reservation cannot be pushed, no POST is attempted.
+- If the webhook POST fails or the final state push fails, the reserved IDs remain excluded from future runs, preventing duplicate delivery.
 - Concurrency is pinned to `ieee-aubh-digest` with `cancel-in-progress: false`, preventing overlapping scheduled and manual runs.
 - The workflow fails closed if state is unreadable or a branch cannot be updated safely.
 
