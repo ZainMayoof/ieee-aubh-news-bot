@@ -1,133 +1,343 @@
+
+<div align="center">
+
 # IEEE AUBH News Bot
 
-Python 3.12 bot that collects public official IEEE vTools opportunities, applies conservative eligibility/date filters, ranks and deduplicates them, and publishes at most one Adaptive Card containing 1-5 opportunities to the existing Microsoft Teams Workflow for **IEEE Board 2026-27**.
+### Automated IEEE Opportunities Digest for Microsoft Teams
 
-## Safety defaults
+A Python-based automation system that discovers, filters, and shares relevant IEEE events and opportunities with the IEEE AUBH community.
 
-- `DRY_RUN=true` is the default and never posts or changes published state.
-- Sending requires both `--send` and `SEND_TO_TEAMS=true` with `DRY_RUN=false`.
-- A webhook success response updates state only after a Teams POST is considered successful.
-- If the source is unavailable, no qualifying events are found, or state cannot be safely read, the bot exits without filling or posting. When 1-5 high-quality events qualify, it sends only those events.
-- This project never posts to the main **IEEE AUBH Student Branch** chat. The existing Workflow owns the destination; create no second Workflow or duplicate trigger.
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
+![GitHub Actions](https://img.shields.io/badge/GitHub-Actions-2088FF?logo=githubactions&logoColor=white)
+![Microsoft Teams](https://img.shields.io/badge/Microsoft-Teams-6264A7?logo=microsoftteams&logoColor=white)
 
-## Local setup on Windows PowerShell
+</div>
 
-Run these commands from the project directory:
+---
+
+## Overview
+
+The **IEEE AUBH News Bot** automates the discovery and distribution of upcoming IEEE opportunities using official IEEE vTools event listings.
+
+Instead of manually searching for events, the bot filters and ranks relevant opportunities before delivering a curated digest directly to a Microsoft Teams group chat.
+
+### Key Features
+
+- **Automated Discovery:** Retrieves upcoming events from IEEE vTools.
+- **Smart Filtering:** Excludes expired, cancelled, private, and irrelevant events.
+- **Opportunity Ranking:** Prioritizes relevant events and opportunities.
+- **Scheduled Delivery:** Runs every Sunday and Wednesday.
+- **Microsoft Teams Integration:** Publishes up to five opportunities in one Adaptive Card.
+- **Duplicate Prevention:** Tracks previously announced events across runs.
+- **Safe Testing:** Supports dry runs without sending messages.
+
+## System Architecture
+
+The bot combines Python-based event processing, GitHub Actions automation, persistent state management, and Microsoft Teams delivery.
+
+```mermaid
+flowchart TD
+    A["IEEE vTools RSS Feed"]
+    B["Python News Bot"]
+    C["Filter & Rank Events"]
+    D["Deduplicate Events"]
+    E[("GitHub State Branch")]
+    F["GitHub Actions"]
+    G["Power Automate Webhook"]
+    H["Microsoft Teams"]
+
+    F -->|"Scheduled / Manual"| B
+    A --> B
+    B --> C
+    C --> D
+    E <--> D
+    D -->|"Selected Opportunities"| G
+    G -->|"Adaptive Card"| H
+
+    style B fill:#00629B,color:#fff,stroke:#00629B
+    style H fill:#6264A7,color:#fff,stroke:#6264A7
+    style E fill:#E8F2FF,color:#003B5C,stroke:#00629B
+```
+
+### How It Works
+
+1. **Trigger:** GitHub Actions starts the bot automatically or through a manual run.
+2. **Collect:** Python retrieves upcoming events from the official IEEE vTools RSS feed.
+3. **Filter:** Events are evaluated based on relevance, dates, and accessibility.
+4. **Deduplicate:** Previously announced opportunities are excluded using persistent GitHub state.
+5. **Publish:** A single Adaptive Card containing up to five opportunities is delivered through Power Automate to Microsoft Teams.
+
+## Power Automate Integration
+
+Power Automate acts as the connection between the Python bot and Microsoft Teams.
+
+The existing workflow receives an HTTP request containing the Adaptive Card payload and posts the card to the configured Teams group chat.
+
+```mermaid
+flowchart TD
+    A["GitHub Actions / Python Bot"]
+    B["When a Teams webhook request is received"]
+    C["Post card in a chat or channel"]
+    D["Microsoft Teams Group Chat"]
+
+    A -->|"HTTP POST"| B
+    B --> C
+    C -->|"Post as Flow bot"| D
+
+    style A fill:#00629B,color:#fff,stroke:#00629B
+    style B fill:#E8F2FF,color:#003B5C,stroke:#00629B
+    style C fill:#E8F2FF,color:#003B5C,stroke:#00629B
+    style D fill:#6264A7,color:#fff,stroke:#6264A7
+```
+
+The workflow contains two main components:
+
+- **Webhook Trigger:** Receives the event digest from the Python application.
+- **Teams Action:** Posts the Adaptive Card as Flow bot to the selected group chat.
+
+The destination chat is managed within Power Automate and can be changed without modifying the Python application.
+
+<!-- Optional: Add a screenshot of the actual Power Automate flow.
+![Power Automate Workflow](docs/power-automate-workflow.png)
+-->
+
+## Automation Schedule
+
+The bot runs automatically twice a week.
+
+| Day | Bahrain Time | UTC |
+|---|---|---|
+| Sunday | 10:00 AM | 07:00 |
+| Wednesday | 10:00 AM | 07:00 |
+
+The schedule is configured in `.github/workflows/digest.yml`:
+
+```yaml
+schedule:
+  - cron: "0 7 * * 0,3"
+```
+
+GitHub Actions uses UTC. Scheduled executions may occasionally be delayed.
+
+## Getting Started
+
+### Prerequisites
+
+- Python 3.12
+- Git
+- Microsoft Teams
+- Power Automate webhook
+
+### Installation
+
+Clone the repository:
+
+```bash
+git clone https://github.com/ZainMayoof/ieee-aubh-news-bot.git
+cd ieee-aubh-news-bot
+```
+
+Create and activate a virtual environment using Windows PowerShell:
 
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
+```
+
+Install the required dependencies:
+
+```powershell
 python -m pip install --upgrade pip
 pip install -r requirements.txt
-pytest -q
-Copy-Item .env.example .env
+```
+
+Run the automated tests:
+
+```powershell
+python -m pytest -q
+```
+
+Run a dry test:
+
+```powershell
 python main.py --dry-run --state-file state/posted_events.json
 ```
 
-PowerShell environment variables are set only for the local process. For a real send test:
+Dry runs do not send Teams messages or modify persistent published-event state.
+
+## GitHub Actions Configuration
+
+The bot uses GitHub Actions for scheduling, execution, and persistent state management.
+
+### Repository Secret
+
+Navigate to:
+
+**Settings → Secrets and variables → Actions**
+
+Create the following secret:
+
+| Secret | Description |
+|---|---|
+| `TEAMS_WEBHOOK_URL` | Power Automate webhook endpoint |
+
+The webhook URL must remain private and should never be committed to the repository.
+
+### Manual Execution
+
+Navigate to:
+
+**Actions → IEEE AUBH Opportunities Digest → Run workflow**
+
+Choose the appropriate settings:
+
+| Setting | Dry Run | Live Send |
+|---|---|---|
+| `dry_run` | `true` | `false` |
+| `send_to_teams` | `false` | `true` |
+
+A live send requires a valid webhook secret and the appropriate environment settings.
+
+## Duplicate Prevention
+
+To prevent repeated announcements, the bot maintains a dedicated GitHub branch named `digest-state`.
+
+```text
+digest-state
+└── state
+    └── posted_events.json
+```
+
+Before a live announcement, selected event IDs are reserved and saved to the state branch.
+
+After a successful webhook response, the bot finalizes the published event IDs.
+
+This ensures that previously recorded opportunities are excluded from future runs, including across Sunday and Wednesday digests.
+
+### Reliability and Safety
+
+- Dry runs never post to Teams or update published state.
+- Live sending requires explicit authorization.
+- Empty digests are not published.
+- Event IDs are reserved before live delivery to reduce duplicate announcements.
+- Failed reservations prevent posting.
+- GitHub Actions concurrency prevents overlapping executions.
+- Webhook credentials are stored securely in GitHub Actions secrets.
+- The bot exits safely when state cannot be accessed or updated.
+
+<details>
+<summary><b>Technical Details: State Management</b></summary>
+
+The workflow maintains published-event state on the dedicated `digest-state` branch rather than relying on temporary GitHub Actions runner storage.
+
+- Fetches the remote state branch into a detached Git worktree.
+- Reads and updates `.digest-state/state/posted_events.json`.
+- Reserves selected event IDs before sending.
+- Pushes the reservation before attempting the webhook request.
+- Finalizes published IDs following a successful webhook response.
+- Retains reserved IDs after failures to reduce duplicate delivery.
+- Uses the concurrency group `ieee-aubh-digest` with `cancel-in-progress: false`.
+
+If the state cannot be safely updated, the workflow does not attempt a live post.
+
+A successful webhook HTTP response does not independently confirm that the Adaptive Card appeared in Teams. Delivery can be verified through Power Automate run history.
+
+</details>
+
+<details>
+<summary><b>Technical Details: Event Sources and Filtering</b></summary>
+
+The bot retrieves public IEEE events from the official IEEE vTools RSS feed:
+
+```text
+https://events.vtools.ieee.org/RST/events/api/public/v8/events/list.rss?span=now~now%2B30.days&published=true&limit=100
+```
+
+The feed is currently the only enabled event source.
+
+The filtering process excludes:
+
+- Expired events or events with uncertain dates
+- Cancelled or postponed events
+- Private or invitation-only meetings
+- Internal administrative events
+- Irrelevant social activities
+- Events with unverified accessibility
+
+Event descriptions are normalized using BeautifulSoup, and dates are extracted from structured event metadata or recognizable text.
+
+The bot sends fewer than five opportunities when fewer qualifying events are available.
+
+</details>
+
+<details>
+<summary><b>Technical Details: Live Testing</b></summary>
+
+Live sending requires:
+
+- `DRY_RUN=false`
+- `SEND_TO_TEAMS=true`
+- A valid `TEAMS_WEBHOOK_URL`
+
+Example using Windows PowerShell:
 
 ```powershell
 $env:DRY_RUN = "false"
 $env:SEND_TO_TEAMS = "true"
-$env:TEAMS_WEBHOOK_URL = "https://your-existing-workflow-url..."
+$env:TEAMS_WEBHOOK_URL = "YOUR_WEBHOOK_URL"
+
 python main.py --send --state-file state/posted_events.json
+```
+
+After testing, clear the environment variables:
+
+```powershell
 Remove-Item Env:TEAMS_WEBHOOK_URL
 Remove-Item Env:SEND_TO_TEAMS
 $env:DRY_RUN = "true"
 ```
 
-Do not commit `.env` or paste the webhook URL into source, logs, screenshots, issues, or pull requests. `.env` is ignored by Git.
+Confirm the destination chat in Power Automate before performing a live test.
 
-## GitHub Actions setup
+</details>
 
-1. Open **Settings > Secrets and variables > Actions**.
-2. Create Actions secret `TEAMS_WEBHOOK_URL` using the URL of the existing Workflow that posts to **IEEE Board 2026-27**.
-3. The workflow uses only `contents: write` in addition to the default read permission. The write permission is required for the dedicated `digest-state` branch.
-4. Push the repository.
-5. Use **Actions > IEEE AUBH Opportunities Digest > Run workflow**. The default dispatch values are dry-run, and the job never posts or modifies state.
+<details>
+<summary><b>Technical Details: Security</b></summary>
 
-The cron schedule is intentionally not enabled until the card payload has been verified in **IEEE Board 2026-27**. Once verified, add `cron: "0 7 * * 0,3"` back under `on:`. That runs Sunday and Wednesday at `07:00 UTC`, which is `10:00 AM Asia/Bahrain` year-round (Bahrain UTC+03). GitHub scheduled runs may be delayed.
+The GitHub Actions workflow requires `contents: write` permission to maintain the dedicated state branch.
 
-## Persisted state and idempotency
+Security recommendations:
 
-The bot uses `state/posted_events.json` for state in the repository. GitHub Actions restores/writes a dedicated `digest-state` branch using `github-actions[bot]`:
+- Protect the `main` branch from unintended changes.
+- Never commit `.env` files or webhook credentials.
+- Restrict access to repository secrets.
+- Rotate the webhook URL if it becomes exposed.
+- Avoid printing sensitive webhook parameters in logs.
+- Verify Power Automate delivery through workflow run history.
 
-- A remote `digest-state` branch is fetched and checked out into `.digest-state` as a detached worktree.
-- The script reads and writes `.digest-state/state/posted_events.json`; the main branch is never switched or overwritten.
-- - Before any live POST, the workflow reserves selected IDs on `digest-state` and pushes that reservation.
-- After a successful send, the workflow commits/pushes posted IDs and clears the reservation.
-- If a reservation cannot be pushed, no POST is attempted.
-- If the webhook POST fails or the final state push fails, the reserved IDs remain excluded from future runs, preventing duplicate delivery.
-- Concurrency is pinned to `ieee-aubh-digest` with `cancel-in-progress: false`, preventing overlapping scheduled and manual runs.
-- The workflow fails closed if state is unreadable or a branch cannot be updated safely.
+</details>
 
-This strategy preserves a durable list of posted IDs across ephemeral runners. It does not preserve state by assuming the runner filesystem survives. The state branch contains IDs only, not cards or secrets.
+## Technology Stack
 
-### Security implications
+| Technology | Purpose |
+|---|---|
+| Python 3.12 | Core application and event processing |
+| IEEE vTools RSS | Official event source |
+| BeautifulSoup | HTML parsing and cleaning |
+| GitHub Actions | Scheduling and automation |
+| GitHub State Branch | Persistent event tracking |
+| Power Automate | Webhook integration |
+| Microsoft Teams | Opportunity announcements |
+| Adaptive Cards | Structured digest presentation |
 
-`contents: write` lets GitHub Actions create/update the dedicated state branch. It does not grant access to Actions secrets beyond what is included in the workflow environment. The repository should remain protected:
+---
 
-- Keep branch protections for `main`; do not allow Actions to push it.
-- Restrict repository/Actions secrets to required branches and environments.
-- Rotate the webhook bearer URL if it may have been exposed.
-- Never include webhook parameters or the full URL in logs.
+<div align="center">
 
-## Testing Teams delivery
+**IEEE AUBH Student Branch**
 
-Before enabling the schedule, first run a local or `workflow_dispatch` dry run. To test live delivery safely:
+*Connecting students with engineering and technology opportunities.*
 
-1. Confirm the existing Workflow trigger and destination are **IEEE Board 2026-27**.
-2. Temporarily or directly run a manual workflow with:
-   - `dry_run=false`
-   - `send_to_teams=true`
-   - Three or more eligible events must be found.
-3. Watch the workflow log for `source_count`, `accepted_count`, rejection counts, `selected_count`, and `published_ids`.
-4. Open **IEEE Board 2026-27** and verify exactly one card appears.
-5. Open the Power Automate run history for the Workflow and verify its trigger and card-post action both succeeded. An HTTP 2xx from the webhook alone is not delivery proof.
-6. If the card payload or action expression is incompatible, adapt the Workflow template or payload; do not disable the post action while claiming success.
+**Developed by [Zain Mayoof](https://github.com/ZainMayoof)**
 
-Use a dedicated test opportunity only if the existing Workflow and destination are confirmed. Never manually alter the script to target a different chat.
-
-## Enabling the schedule
-
-The scheduled job uses `DRY_RUN=false` and `SEND_TO_TEAMS=true`, but posting still depends on `TEAMS_WEBHOOK_URL` being configured. GitHub scheduled runs can appear late. When real end-to-end live testing is successful:
-
-1. In the repository Actions tab, enable **IEEE AUBH Opportunities Digest** if GitHub disabled it.
-2. Confirm `.github/workflows/digest.yml` remains on the default branch.
-3. Wait for or manually dispatch one live run to inspect the board chat and Workflow run history.
-4. Leave no old webhook URL in secrets, `.env`, logs, or documentation.
-
-## Rotating an exposed webhook
-
-If a webhook URL was exposed in chat, logs, a commit, an issue, or a screenshot:
-
-1. Open the existing Power Automate workflow.
-2. Disable or delete the old incoming webhook/trigger, or reset/rotate its URL if the Power Automate UI provides that action.
-3. Add or update the trigger URL in the `TEAMS_WEBHOOK_URL` GitHub Actions secret.
-4. Run a manual dry run, then a manual live run only after confirming the board destination.
-5. Verify successful card delivery and Workflow run history.
-6. Only after successful live verification, disable the old Power Automate scheduled digest or trigger that previously sent the digest.
-
-Do not disable the old delivery mechanism before the replacement is proven end-to-end.
-
-## Source and filtering behavior
-
-The source is the public IEEE vTools RSS endpoint:
-
-`https://events.vtools.ieee.org/RST/events/api/public/v8/events/list.rss?span=now~now%2B30.days&published=true&limit=100`
-
-It is the only source enabled in this project. The 100-item limit is not guaranteed and the feed may cover a limited window, so source count is logged every run. A future official source can implement `SourceInterface` in `main.py` without scraping unsupported sites.
-
-Published RSS timestamps are treated only as publication metadata. Event dates are extracted from structured start fields first, then only clearly recognizable dates in title/description. Uncertain or past dates are excluded. HTML is normalized with BeautifulSoup, scripts are stripped, entities are decoded, and repeated boilerplate is removed.
-
-Internal committee meetings, closed/invite-only events, postponed/cancelled events, restricted participation, irrelevant social meetings, expired events, and uncertain dates are rejected conservatively.
-
-## CLI
-
-```text
-python main.py --dry-run
-python main.py --send
-python main.py --dry-run --state-file state/posted_events.json
-```
-
-`--send` is never sufficient alone. It also requires `SEND_TO_TEAMS=true`, `DRY_RUN=false`, and a valid `TEAMS_WEBHOOK_URL`.
+</div>
