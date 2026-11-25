@@ -9,13 +9,12 @@
     "https://events.vtools.ieee.org/m/596451",
     "https://events.vtools.ieee.org/m/596541",
     "https://events.vtools.ieee.org/m/596557",
-    "https://events.vtools.ieee.org/m/596774"
-  ],
-  "pending_event_ids": [
+    "https://events.vtools.ieee.org/m/596774",
     "https://events.vtools.ieee.org/m/597233",
     "https://events.vtools.ieee.org/m/597257",
     "https://events.vtools.ieee.org/m/597346",
     "https://events.vtools.ieee.org/m/597450",
     "https://events.vtools.ieee.org/m/597544"
-  ]
+  ],
+  "pending_event_ids": []
 }
